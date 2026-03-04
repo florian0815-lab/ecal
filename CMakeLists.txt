@@ -225,8 +225,7 @@ set(ECAL_CORE_MONITORING                                                        
 set(ECAL_CORE_PUBLISHER                                                                                                 ON)
 set(ECAL_CORE_SUBSCRIBER                                                                                                ON)
 set(ECAL_CORE_SERVICE                                                                                                   ON)
-set(ECAL_CORE_TIMEGATE                                                                                                  ON)
-set(ECAL_CORE_TIMEPLUGIN                                                                                                ON)
+set(ECAL_CORE_TIMEPLUGIN                                                                         ${ECAL_BUILD_TIMEPLUGINS})
 set(ECAL_CORE_NPCAP_SUPPORT                                                                              ${ECAL_USE_NPCAP})
 set(ECAL_CORE_REGISTRATION_SHM                                                                                          ON)
 set(ECAL_CORE_TRANSPORT_UDP                                                                                             ON)
@@ -416,9 +415,8 @@ endif()
 if(ECAL_USE_HDF5)
   add_subdirectory(contrib/measurement/hdf5)
   add_subdirectory(contrib/ecalhdf5)
+  add_subdirectory(contrib/measurement/base)
 endif()
-add_subdirectory(contrib/measurement/base)
-
 
 # --------------------------------------------------------
 # ecal core python binding
@@ -444,6 +442,9 @@ endif()
 
 if(ECAL_BUILD_APPS AND NOT ECAL_USE_PROTOBUF)
   message(FATAL_ERROR "Invalid CMake option: ECAL_BUILD_APPS has to be configured with ECAL_USE_PROTOBUF enabled.")
+endif()
+if(ECAL_BUILD_APPS AND NOT ECAL_BUILD_TIMEPLUGINS)
+  message(FATAL_ERROR "Invalid CMake option: ECAL_BUILD_APPS has to be configured with ECAL_BUILD_TIMEPLUGINS enabled.")
 endif()
 
 # --------------------------------------------------------
