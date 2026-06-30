@@ -28,6 +28,13 @@
 #include <ecal_def.h>
 #include <ecal/util.h>
 
+#include <filesystem>
+#include <system_error>
+
+#ifdef ECAL_OS_WINDOWS
+  #include <ecal_utils/str_convert.h>
+#endif
+
 #include <cstdlib>
 #include <map>
 
@@ -58,7 +65,6 @@ class MockDirProvider  : public eCAL::Util::IDirProvider
     MOCK_METHOD(std::string, eCALEnvVar, (const std::string& var_), (const, override));
     MOCK_METHOD(std::string, eCALLocalUserDir, (), (const, override));
     MOCK_METHOD(std::string, eCALDataSystemDir, (const eCAL::Util::IDirManager& dir_manager_), (const, override));
-    MOCK_METHOD(std::string, eCALLibraryDir, (const eCAL::Util::IDirManager& dir_manager_), (const, override));
     MOCK_METHOD(std::string, uniqueTmpDir, (const eCAL::Util::IDirManager& dir_manager_), (const, override));
 };
 
@@ -83,9 +89,6 @@ TEST(core_cpp_path_processing /*unused*/, ecal_data_log_env_vars /*unused*/)
     .Times(expected_call_count_data_dir)
     .WillRepeatedly(testing::Return(""));
   EXPECT_CALL(mock_dir_provider, eCALLocalUserDir())
-    .Times(expected_call_count_data_dir)
-    .WillRepeatedly(testing::Return(""));
-  EXPECT_CALL(mock_dir_provider, eCALLibraryDir(::testing::Ref(mock_dir_manager)))
     .Times(expected_call_count_data_dir)
     .WillRepeatedly(testing::Return(""));
   
@@ -141,9 +144,6 @@ TEST(core_cpp_path_processing /*unused*/, ecal_local_user_dir /*unused*/)
   EXPECT_CALL(mock_dir_provider, eCALDataSystemDir(::testing::Ref(mock_dir_manager)))
     .Times(expected_call_count_data_dir)
     .WillRepeatedly(testing::Return(""));
-  EXPECT_CALL(mock_dir_provider, eCALLibraryDir(::testing::Ref(mock_dir_manager)))
-    .Times(expected_call_count_data_dir)
-    .WillRepeatedly(testing::Return(""));
   
   // set the tmp directory
   EXPECT_CALL(mock_dir_provider, uniqueTmpDir(::testing::Ref(mock_dir_manager)))
@@ -184,9 +184,6 @@ TEST(core_cpp_path_processing /*unused*/, ecal_data_system_dir /*unused*/)
   EXPECT_CALL(mock_dir_provider, eCALLocalUserDir())
     .Times(expected_call_count)
     .WillRepeatedly(testing::Return(""));
-  EXPECT_CALL(mock_dir_provider, eCALLibraryDir(::testing::Ref(mock_dir_manager)))
-    .Times(expected_call_count)
-    .WillRepeatedly(testing::Return(""));
 
   // set the tmp directory
   EXPECT_CALL(mock_dir_provider, uniqueTmpDir(::testing::Ref(mock_dir_manager)))
@@ -204,50 +201,6 @@ TEST(core_cpp_path_processing /*unused*/, ecal_data_system_dir /*unused*/)
 
   // Testing with eCALData and eCALLog -DirImpl
   EXPECT_EQ(eCAL::Config::GeteCALDataDirImpl(mock_dir_provider, mock_dir_manager), ecal_data_system_dir);
-  EXPECT_EQ(eCAL::Config::GeteCALDataDirImpl(mock_dir_provider, mock_dir_manager), "");
-}
-
-TEST(core_cpp_path_processing /*unused*/, ecal_library_dir /*unused*/)
-{
-  const std::string ecal_library_dir = "/data/library/dir";
-  const std::string ecal_relative_etc_dir = "/data/library/dir" + path_separator + ECAL_FOLDER_RELATIVE_ETC;
-  const std::string unique_tmp_dir = "/tmp/unique";
-  
-  const int expected_call_count = 2;
-
-  const MockDirProvider mock_dir_provider;
-  const NiceMock<MockDirManager> mock_dir_manager;
-
-  // mock the environment variables to be empty
-  EXPECT_CALL(mock_dir_provider, eCALEnvVar(ECAL_DATA_VAR))
-    .Times(expected_call_count)
-    .WillRepeatedly(testing::Return(""));
-  EXPECT_CALL(mock_dir_provider, eCALEnvVar(ECAL_LOG_VAR))
-    .Times(0);
-  EXPECT_CALL(mock_dir_provider, eCALLocalUserDir())
-    .Times(expected_call_count)
-    .WillRepeatedly(testing::Return(""));
-  EXPECT_CALL(mock_dir_provider, eCALDataSystemDir(::testing::Ref(mock_dir_manager)))
-    .Times(expected_call_count)
-    .WillRepeatedly(testing::Return(""));
-  
-  // set the tmp directory
-  EXPECT_CALL(mock_dir_provider, uniqueTmpDir(::testing::Ref(mock_dir_manager)))
-    .Times(0);
-  
-  // let's assume all directories exist
-  ON_CALL(mock_dir_manager, dirExists(testing::_)).WillByDefault(testing::Return(true));
-  ON_CALL(mock_dir_manager, canWriteToDirectory(testing::_)).WillByDefault(testing::Return(true));
-  
-  // mock the library dir to be existent
-  EXPECT_CALL(mock_dir_provider, eCALLibraryDir(::testing::Ref(mock_dir_manager)))
-    .Times(expected_call_count)
-    .WillOnce(testing::Return(ecal_library_dir))
-    .WillRepeatedly(testing::Return(""));
-
-
-  // Testing with eCALData and eCALLog -DirImpl
-  EXPECT_EQ(eCAL::Config::GeteCALDataDirImpl(mock_dir_provider, mock_dir_manager), ecal_relative_etc_dir);
   EXPECT_EQ(eCAL::Config::GeteCALDataDirImpl(mock_dir_provider, mock_dir_manager), "");
 }
 
@@ -392,3 +345,102 @@ TEST(core_cpp_path_processing /*unused*/, ecal_log_order_test /*unused*/)
   EXPECT_EQ(eCAL::Config::GeteCALLogDirImpl(mock_dir_provider, mock_dir_manager, config), ecal_yaml_dir);
   EXPECT_EQ(eCAL::Config::GeteCALLogDirImpl(mock_dir_provider, mock_dir_manager, config), unique_tmp_dir);
 }
+
+// ============================================================================
+// DirManager concrete implementation tests
+// ============================================================================
+
+// Verify that canWriteToDirectory returns true for a real writable directory and
+// false for a non-existent one.
+// Note: the specific bug of std::filesystem::remove throwing on failure (vs. the
+// error_code overload) cannot be exercised in a normal unit test because it only
+// manifests when the OS refuses to delete the test file – an unusual condition
+// that cannot be reliably engineered here.  The fix (using the error_code overload)
+// is validated by code review rather than by this test.
+TEST(core_cpp_dir_manager /*unused*/, can_write_to_directory /*unused*/)
+{
+  const eCAL::Util::DirManager dir_manager;
+  const std::string temp_dir = std::filesystem::temp_directory_path().u8string();
+
+  EXPECT_TRUE(dir_manager.canWriteToDirectory(temp_dir));
+  EXPECT_FALSE(dir_manager.canWriteToDirectory("ecal_nonexistent_dir_test_67890"));
+}
+
+// Verify that uniqueTmpDir returns a non-empty, existing directory and can be
+// cleaned up without issues.
+// Note: getTempDir() is a free function that reads the real OS temp directory and
+// is not injectable, so the fallback path (ECAL_FALLBACK_TMP_DIR) cannot be
+// triggered in a unit test without manipulating environment variables.
+TEST(core_cpp_dir_provider /*unused*/, unique_tmp_dir_returns_valid_dir /*unused*/)
+{
+  const eCAL::Util::DirManager  dir_manager;
+  const eCAL::Util::DirProvider dir_provider;
+
+  const std::string unique_dir = dir_provider.uniqueTmpDir(dir_manager);
+  EXPECT_FALSE(unique_dir.empty());
+
+  if (!unique_dir.empty())
+  {
+    EXPECT_TRUE(dir_manager.dirExists(unique_dir));
+
+    std::error_code ec;
+    std::filesystem::remove_all(std::filesystem::u8path(unique_dir), ec);
+    EXPECT_FALSE(ec) << "Cleanup of unique tmp dir failed: " << ec.message();
+  }
+}
+
+// Verify that uniqueTmpDir returns an empty string when the base tmp directory
+// cannot be accessed or created (new guard: dirExistsOrCreate fails).
+TEST(core_cpp_dir_provider /*unused*/, unique_tmp_dir_returns_empty_when_dir_not_creatable /*unused*/)
+{
+  NiceMock<MockDirManager> mock_dir_manager;
+  const eCAL::Util::DirProvider dir_provider;
+
+  ON_CALL(mock_dir_manager, dirExistsOrCreate(testing::_)).WillByDefault(testing::Return(false));
+
+  EXPECT_TRUE(dir_provider.uniqueTmpDir(mock_dir_manager).empty());
+}
+
+#ifdef ECAL_OS_WINDOWS
+// On Windows, DirManager methods receive UTF-8 strings.  Before the fix,
+// std::filesystem::path(std::string) used the ANSI code page, which caused
+// garbled or failed operations for non-ASCII paths.  These tests verify the
+// correct UTF-8 round-trip behaviour after the fix.
+
+// Tests that getDirectoryPath correctly round-trips a UTF-8 path containing
+// characters outside the ANSI code page (Greek letters used as a proxy).
+TEST(core_cpp_dir_manager /*unused*/, get_directory_path_unicode_utf8 /*unused*/)
+{
+  // UTF-8 encoding of "αβγ" (U+03B1 U+03B2 U+03B3)
+  const std::string unicode_segment = "\xce\xb1\xce\xb2\xce\xb3";
+
+  const std::string input_path     = "C:\\unicode_test\\" + unicode_segment + "\\ecal.yaml";
+  const std::string expected_dir   = "C:\\unicode_test\\" + unicode_segment;
+
+  const eCAL::Util::DirManager dir_manager;
+  EXPECT_EQ(dir_manager.getDirectoryPath(input_path), expected_dir);
+}
+
+// Tests that canWriteToDirectory works correctly when the target directory path
+// contains Unicode characters (non-ANSI).
+TEST(core_cpp_dir_manager /*unused*/, can_write_to_directory_unicode_path /*unused*/)
+{
+  // Use a wide path to create the directory reliably, then pass its UTF-8
+  // representation to the function under test.
+  const std::wstring unicode_dir_name = L"ecal_unicode_write_test_\u03B1\u03B2\u03B3";
+  const std::filesystem::path unicode_dir_path =
+    std::filesystem::temp_directory_path() / unicode_dir_name;
+
+  std::error_code ec;
+  std::filesystem::create_directory(unicode_dir_path, ec);
+  ASSERT_FALSE(ec) << "Failed to create Unicode test directory: " << ec.message();
+
+  const std::string unicode_dir_utf8 =
+    EcalUtils::StrConvert::WideToUtf8(unicode_dir_path.wstring());
+
+  const eCAL::Util::DirManager dir_manager;
+  EXPECT_TRUE(dir_manager.canWriteToDirectory(unicode_dir_utf8));
+
+  std::filesystem::remove_all(unicode_dir_path, ec);
+}
+#endif /* ECAL_OS_WINDOWS */

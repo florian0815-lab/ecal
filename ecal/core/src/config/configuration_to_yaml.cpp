@@ -6,7 +6,7 @@ namespace YAML
   eCAL::Logging::Filter ParseLogLevel(const std::vector<std::string>& filter_)
   {
     // create excluding filter list
-    char filter_mask = eCAL::Logging::log_level_none;
+    eCAL::Logging::Filter filter_mask = eCAL::Logging::log_level_none;
     for (const auto& it : filter_)
     {
       if (it == "all")     filter_mask |= eCAL::Logging::log_level_all;
@@ -26,7 +26,7 @@ namespace YAML
   std::vector<std::string> LogLevelToVector(eCAL::Logging::Filter filter_mask)
   {
     std::vector<std::string> filter;
-    if ((filter_mask & eCAL::Logging::log_level_all) != 0)     filter.emplace_back("all");
+    if (filter_mask == eCAL::Logging::log_level_all)           filter.emplace_back("all");
     if ((filter_mask & eCAL::Logging::log_level_info) != 0)    filter.emplace_back("info");
     if ((filter_mask & eCAL::Logging::log_level_warning) != 0) filter.emplace_back("warning");
     if ((filter_mask & eCAL::Logging::log_level_error) != 0)   filter.emplace_back("error");
@@ -189,6 +189,8 @@ namespace YAML
     node["registration_refresh"] = config_.registration_refresh;
     node["loopback"]             = config_.loopback;
     node["shm_transport_domain"] = config_.shm_transport_domain;
+    node["local"]                = config_.local;
+    node["network"]              = config_.network;
     return node;
   }
 
@@ -256,6 +258,7 @@ namespace YAML
     node["mask"]                = config_.mask.Get();
     node["send_buffer"]         = config_.send_buffer;
     node["receive_buffer"]      = config_.receive_buffer;
+    node["max_datagram_size"]   = config_.max_datagram_size;
     node["join_all_interfaces"] = config_.join_all_interfaces;
     node["npcap_enabled"]       = config_.npcap_enabled;
     node["network"]             = config_.network;
@@ -274,6 +277,7 @@ namespace YAML
     AssignValue<std::string>(config_.mask, node_, "mask");
     AssignValue<unsigned int>(config_.send_buffer, node_, "send_buffer");
     AssignValue<unsigned int>(config_.receive_buffer, node_, "receive_buffer");
+    AssignValue<unsigned int>(config_.max_datagram_size, node_, "max_datagram_size");
     AssignValue<bool>(config_.join_all_interfaces, node_, "join_all_interfaces");
     AssignValue<bool>(config_.npcap_enabled, node_, "npcap_enabled");
 
@@ -680,6 +684,7 @@ namespace YAML
   Node convert<eCAL::Configuration>::encode(const eCAL::Configuration& config_)
   {
     Node node;
+    node["transport_layer"]    = config_.transport_layer;
     node["publisher"]          = config_.publisher;
     node["subscriber"]         = config_.subscriber;
     node["registration"]       = config_.registration;

@@ -35,7 +35,7 @@ jobs:
       run: choco install ccache --version=4.11.2
 
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         submodules:  'false'
         fetch-depth: 0
@@ -245,19 +245,19 @@ jobs:
       working-directory: ${{ runner.workspace }}/_build/complete/_deploy/
 
     - name: Upload Windows setup
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: unsigned-setup
         path: ${{ runner.workspace }}/_build/complete/_deploy/*.exe
         
     - name: Upload Benchmark Executables
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: 'benchmarks'
         path: ${{ runner.workspace }}/_build/complete/bin/ecal_benchmark*
         
     - name: Upload eCAL Libraries
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: 'libraries'
         path: ${{ runner.workspace }}/_build/complete/bin/*.dll
@@ -283,20 +283,20 @@ jobs:
 
     steps:
     - name: Fetch Throughput Calculator Python Script
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         sparse-checkout: |
             ecal/benchmarks/util/throughput_calculator.py
         sparse-checkout-cone-mode: false
     
     - name: Download eCAL Libraries
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: 'libraries'
         path: ${{ github.workspace }}
     
     - name: Download Benchmark Executables
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: 'benchmarks'
         path: ${{ github.workspace }}
@@ -367,7 +367,7 @@ jobs:
       shell: pwsh
         
     - name: Fetch 7z-Score Python Script
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         sparse-checkout: |
             ecal/benchmarks/util/7z_score.py
@@ -402,7 +402,7 @@ jobs:
 
     # Download the installer from the previous job
     - name: Download Windows setup
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: unsigned-setup
         path: ${{ runner.workspace }}/_build/complete/_deploy
@@ -464,6 +464,10 @@ jobs:
           'Cookie'=$CRUMB_COOKIE
           $CRUMB_FIELD=$CRUMB_ID
         }
+        $AUTH_HEADERS = @{
+          'Authorization'="Basic $($AUTH_INFO)"
+          'Cookie'=$CRUMB_COOKIE
+        }
         $FORM = @{
           'GH_FILE_NAME'= $ASSET_NAME
           'GH_EXECUTABLE'= Get-Item -Path $ASSET_NAME
@@ -492,7 +496,7 @@ jobs:
               Exit 1
           }
 
-          $RESPONSE = Invoke-WebRequest -Uri $QUEUE_URL
+          $RESPONSE = Invoke-WebRequest -Uri $QUEUE_URL -Headers $AUTH_HEADERS
           $RES_CODE = $RESPONSE.StatusCode
           Write-Output "    ++ build number retrieval - HTTP status code: $RES_CODE"
 
@@ -519,7 +523,7 @@ jobs:
         Write-Output "-- check build status of #Build $BUILD_NUM with $JENKINS_STATUS_URL"
 
         while ($true) {
-          $RESPONSE = Invoke-WebRequest -Uri $JENKINS_STATUS_URL
+          $RESPONSE = Invoke-WebRequest -Uri $JENKINS_STATUS_URL -Headers $AUTH_HEADERS
           $RES_CODE = $RESPONSE.StatusCode
           Write-Output "    ++ status check - HTTP status code: $RES_CODE"
 
@@ -556,7 +560,7 @@ jobs:
 
         Rename-Item -Path "$ASSET_NAME" -NewName "$ASSET_NAME_OLD" 
 
-        $RESPONSE = Invoke-WebRequest -Uri $JENKINS_DOWNLOAD_URL -OutFile $ASSET_NAME_NEW -PassThru
+        $RESPONSE = Invoke-WebRequest -Uri $JENKINS_DOWNLOAD_URL -Headers $AUTH_HEADERS -OutFile $ASSET_NAME_NEW -PassThru
         $RES_CODE = $RESPONSE.StatusCode
         Write-Output "    ++ download installer - HTTP status code: $RES_CODE"
 
@@ -584,7 +588,7 @@ jobs:
 
     - name: Upload Windows setup signed on Eclipse CI
       if: env.IS_DOWNLOAD_AVAILABLE == 'true'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: ${{ env.ARTIFACT_NAME }}
         path: ${{ runner.workspace }}/_build/complete/_deploy/${{ env.ASSET_NAME }}
